@@ -9,6 +9,9 @@ let historyPanelVisible = false;
 let selectedHistoryDate = null;
 let dashboardPanelVisible = false;
 const deleteAnimationMs = 120;
+const SWIPE_THRESHOLD = 64;
+let activeSwipeTodo = null;
+let activeTouchDragTodo = null;
 
 function get(key) {
   return JSON.parse(localStorage.getItem(key));
@@ -163,6 +166,18 @@ function saveTodos(type, list) {
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function isTempTodoVisible(todo) {
+  if (!todo || typeof todo !== "object") return true;
+  const today = getTodayKey();
+  if (todo.visibleDate && typeof todo.visibleDate === "string" && today < todo.visibleDate) {
+    return false;
+  }
+  if (todo.hideAfter && typeof todo.hideAfter === "string" && today > todo.hideAfter) {
+    return false;
+  }
+  return true;
 }
 
 function normalizeHistory(history) {
@@ -434,6 +449,169 @@ function onTodoDrop(type, targetIndex) {
   render();
 }
 
+function reorderTodoListByIndices(type, orderedIndices) {
+  const source = readTodos(type);
+  const normalized = orderedIndices
+    .map(function toNumber(value) {
+      return Number(value);
+    })
+    .filter(function isValid(index) {
+      return Number.isInteger(index) && index >= 0 && index < source.length;
+    });
+
+  if (normalized.length !== source.length) return;
+
+  const reordered = normalized.map(function pick(index) {
+    return source[index];
+  });
+
+  saveTodos(type, reordered);
+  refreshTodayHistorySnapshot();
+  render();
+}
+
+function getItemByClientY(container, clientY) {
+  const items = Array.from(container.querySelectorAll(".item"));
+  return items.find(function hit(item) {
+    const rect = item.getBoundingClientRect();
+    return clientY >= rect.top && clientY <= rect.bottom;
+  }) || null;
+}
+
+function onTouchDragStart(event, type, li) {
+  if (window.innerWidth > 600) return;
+  if (!li || !li.parentElement) return;
+  if (event.touches.length !== 1) return;
+
+  const touch = event.touches[0];
+  const listEl = li.parentElement;
+  activeTouchDragTodo = {
+    type,
+    listEl,
+    itemEl: li,
+    startY: touch.clientY
+  };
+  li.classList.add("touch-dragging");
+}
+
+function onTouchDragMove(event) {
+  if (!activeTouchDragTodo) return;
+  if (event.touches.length !== 1) return;
+  event.preventDefault();
+  const touch = event.touches[0];
+  const hovered = getItemByClientY(activeTouchDragTodo.listEl, touch.clientY);
+  if (!hovered || hovered === activeTouchDragTodo.itemEl) return;
+
+  const hoveredRect = hovered.getBoundingClientRect();
+  const shouldInsertAfter = touch.clientY > hoveredRect.top + hoveredRect.height / 2;
+  if (shouldInsertAfter) {
+    activeTouchDragTodo.listEl.insertBefore(activeTouchDragTodo.itemEl, hovered.nextSibling);
+  } else {
+    activeTouchDragTodo.listEl.insertBefore(activeTouchDragTodo.itemEl, hovered);
+  }
+}
+
+function onTouchDragEnd() {
+  if (!activeTouchDragTodo) return;
+
+  const itemEl = activeTouchDragTodo.itemEl;
+  const listEl = activeTouchDragTodo.listEl;
+  const type = activeTouchDragTodo.type;
+  itemEl.classList.remove("touch-dragging");
+  activeTouchDragTodo = null;
+
+  const ordered = Array.from(listEl.querySelectorAll(".item")).map(function mapIndex(item) {
+    return Number(item.dataset.index);
+  });
+  reorderTodoListByIndices(type, ordered);
+}
+
+function handleSwipeEnd(itemEl, type, index) {
+  if (!itemEl || !activeSwipeTodo) return;
+  const deltaX = activeSwipeTodo.deltaX;
+
+  if (deltaX <= -SWIPE_THRESHOLD) {
+    itemEl.classList.add("swipe-out");
+    window.setTimeout(function runDelete() {
+      deleteTodo(type, index);
+    }, deleteAnimationMs);
+  } else if (deltaX >= SWIPE_THRESHOLD) {
+    itemEl.classList.add("swipe-complete");
+    window.setTimeout(function runToggle() {
+      toggleTodo(type, index);
+    }, deleteAnimationMs);
+  } else {
+    itemEl.style.removeProperty("--swipe-x");
+    itemEl.classList.remove("swiping");
+  }
+
+  activeSwipeTodo = null;
+}
+
+function bindTouchInteractions(li, type, todoIndex) {
+  li.addEventListener(
+    "touchstart",
+    function onTouchStart(event) {
+      if (window.innerWidth > 600) return;
+      if (event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      activeSwipeTodo = {
+        type,
+        index: todoIndex,
+        itemEl: li,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        deltaX: 0,
+        isHorizontal: null
+      };
+      onTouchDragStart(event, type, li);
+    },
+    { passive: true }
+  );
+
+  li.addEventListener(
+    "touchmove",
+    function onTouchMove(event) {
+      if (!activeSwipeTodo || activeSwipeTodo.itemEl !== li) {
+        onTouchDragMove(event);
+        return;
+      }
+      if (event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - activeSwipeTodo.startX;
+      const deltaY = touch.clientY - activeSwipeTodo.startY;
+
+      if (activeSwipeTodo.isHorizontal === null) {
+        activeSwipeTodo.isHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
+      }
+
+      if (activeSwipeTodo.isHorizontal) {
+        event.preventDefault();
+        activeSwipeTodo.deltaX = deltaX;
+        li.style.setProperty("--swipe-x", `${deltaX}px`);
+        li.classList.add("swiping");
+        li.classList.toggle("swipe-to-delete", deltaX < 0);
+        li.classList.toggle("swipe-to-complete", deltaX > 0);
+      } else {
+        onTouchDragMove(event);
+      }
+    },
+    { passive: false }
+  );
+
+  li.addEventListener("touchend", function onTouchEnd() {
+    if (activeSwipeTodo && activeSwipeTodo.itemEl === li && activeSwipeTodo.isHorizontal) {
+      handleSwipeEnd(li, type, todoIndex);
+      onTouchDragEnd();
+      return;
+    }
+    li.style.removeProperty("--swipe-x");
+    li.classList.remove("swiping", "swipe-to-delete", "swipe-to-complete");
+    activeSwipeTodo = null;
+    onTouchDragEnd();
+  });
+}
+
 function getSortedHistory() {
   const project = getCurrentProject();
   const projectHistory = project ? project.history : [];
@@ -672,18 +850,18 @@ function renderHistoryPanel() {
 
   detailTitleEl.textContent = selected.date;
   detailContentEl.innerHTML = `
-    <div>每日任务：${dailyDone}/${selected.daily.length}</div>
+    <span class="history-section-title">📅 每日任务 ${dailyDone}/${selected.daily.length}</span>
     <ul>${selected.daily
       .map(function renderDaily(todo) {
-        return `<li>${todo.done ? "✅" : "⬜"} ${todo.text}</li>`;
+        return `<li style="color:${todo.done ? 'var(--success)' : 'var(--text-secondary)'}">${todo.done ? "✅" : "⬜"} ${todo.text}</li>`;
       })
-      .join("")}</ul>
-    <div>临时任务：${tempDone}/${selected.temp.length}</div>
+      .join("") || "<li style='color:var(--text-muted)'>暂无记录</li>"}</ul>
+    <span class="history-section-title">🧠 临时任务 ${tempDone}/${selected.temp.length}</span>
     <ul>${selected.temp
       .map(function renderTemp(todo) {
-        return `<li>${todo.done ? "✅" : "⬜"} ${todo.text}</li>`;
+        return `<li style="color:${todo.done ? 'var(--success)' : 'var(--text-secondary)'}">${todo.done ? "✅" : "⬜"} ${todo.text}</li>`;
       })
-      .join("")}</ul>
+      .join("") || "<li style='color:var(--text-muted)'>暂无记录</li>"}</ul>
   `;
 }
 
@@ -708,20 +886,51 @@ function renderDashboardPanel() {
 
   if (rateEl) rateEl.textContent = `${todaySummary.rate}%`;
   if (rateDetailEl) {
-    rateDetailEl.textContent = `${todaySummary.done}/${todaySummary.total}（daily + temp）`;
+    rateDetailEl.textContent = `${todaySummary.done}/${todaySummary.total} 任务`;
   }
+  const progressFill = document.getElementById("progress-bar-fill");
+  if (progressFill) progressFill.style.width = `${todaySummary.rate}%`;
   if (totalEl) totalEl.textContent = `${todaySummary.total}`;
   if (countDetailEl) {
     countDetailEl.textContent = `已完成 ${todaySummary.done} · 未完成 ${todaySummary.undone}`;
   }
   if (streakEl) streakEl.textContent = `${streak} 天`;
 
-  if (!last7El) return;
-  last7El.innerHTML = "";
-  last7.forEach(function renderLast7(item) {
-    const li = document.createElement("li");
-    li.innerHTML = `<span>${item.date}</span><span>${item.done}/${item.total} · ${item.rate}%</span>`;
-    last7El.appendChild(li);
+  // 渲染柱状图
+  const chartEl = document.getElementById("dashboard-chart");
+  const labelsEl = document.getElementById("dashboard-chart-labels");
+  if (!chartEl || !labelsEl) return;
+
+  const todayKey = getTodayKey();
+  const reversed = last7.slice().reverse(); // 从旧到新
+  const maxRate = Math.max(...reversed.map(function(d){ return d.rate; }), 1);
+
+  chartEl.innerHTML = "";
+  labelsEl.innerHTML = "";
+
+  reversed.forEach(function renderBar(item) {
+    const isToday = item.date === todayKey;
+    const heightPct = item.total === 0 ? 4 : Math.max(5, Math.round((item.rate / 100) * 100));
+
+    const barItem = document.createElement("div");
+    barItem.className = "bar-item";
+
+    const pct = document.createElement("span");
+    pct.className = "bar-pct";
+    pct.textContent = item.total === 0 ? "" : item.rate + "%";
+
+    const fill = document.createElement("div");
+    fill.className = "bar-fill" + (isToday ? " today" : "") + (item.total === 0 ? " zero" : "");
+    fill.style.height = heightPct + "%";
+
+    barItem.appendChild(pct);
+    barItem.appendChild(fill);
+    chartEl.appendChild(barItem);
+
+    const label = document.createElement("div");
+    label.className = "bar-label" + (isToday ? " today" : "");
+    label.textContent = isToday ? "今天" : item.date.slice(5); // MM-DD
+    labelsEl.appendChild(label);
   });
 }
 
@@ -754,14 +963,41 @@ function renderList(targetEl, list, type) {
       ? `<span class="priority-badge priority-${todo.priority}">${priorityLabelMap[todo.priority] || todo.priority}</span>`
       : "";
 
-    li.innerHTML = `
-      <span onclick="toggleTodo('${type}', ${todoIndex})">
-        ${todo.done ? "✅" : "⬜"} ${todo.text} ${priorityBadge}
-      </span>
-      <button onclick="deleteTodoWithAnimation('${type}', ${todoIndex}, this)" style="margin-left:auto;">
-        🗑
-      </button>
-    `;
+    li.dataset.type = type;
+    li.dataset.index = String(todoIndex);
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "todo-toggle";
+    toggleBtn.type = "button";
+    toggleBtn.setAttribute("aria-label", todo.done ? "标记为未完成" : "标记为完成");
+    toggleBtn.innerHTML = todo.done ? "☑" : "☐";
+    toggleBtn.onclick = function onToggleTodo() {
+      li.classList.add("completing");
+      window.setTimeout(function runToggleTodo() {
+        toggleTodo(type, todoIndex);
+      }, 80);
+    };
+
+    const textEl = document.createElement("span");
+    textEl.className = "todo-text";
+    textEl.innerHTML = `${todo.text} ${priorityBadge}`;
+    textEl.onclick = function onTextToggle() {
+      toggleBtn.click();
+    };
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "todo-delete";
+    removeBtn.type = "button";
+    removeBtn.setAttribute("aria-label", "删除任务");
+    removeBtn.textContent = "🗑";
+    removeBtn.onclick = function onDeleteTodo() {
+      deleteTodoWithAnimation(type, todoIndex, removeBtn);
+    };
+
+    li.appendChild(toggleBtn);
+    li.appendChild(textEl);
+    li.appendChild(removeBtn);
+    bindTouchInteractions(li, type, todoIndex);
 
     targetEl.appendChild(li);
   });
@@ -791,15 +1027,19 @@ function render() {
       return { ...todo, __index: index };
     })
     .filter(function tempByFilter(todo) {
-      return matchFilter(todo);
+      return matchFilter(todo) && isTempTodoVisible(todo);
     });
 
   renderList(dailyList, filteredDaily, "daily");
   renderList(tempList, filteredTemp, "temp");
   updateFilterButtons();
+  const dailyCountEl = document.getElementById("daily-count");
+  const tempCountEl = document.getElementById("temp-count");
+  if (dailyCountEl) dailyCountEl.textContent = filteredDaily.length;
+  if (tempCountEl) tempCountEl.textContent = filteredTemp.length;
 
   const stats = getStats(daily);
-  statsEl.textContent = `项目「${currentProject.name}」每日完成率：${stats.rate}%（${stats.done}/${stats.total}）`;
+  statsEl.innerHTML = `项目 <strong>${currentProject.name}</strong> · 每日完成率 <strong>${stats.rate}%</strong>（${stats.done}/${stats.total} 已完成）`;
   renderHistoryPanel();
   renderDashboardPanel();
 }
@@ -808,6 +1048,30 @@ function init() {
   ensureInitialData();
   checkDailyReset();
   ensureTodayHistorySnapshot();
+
+  // 用 addEventListener 替代 inline onclick，更现代
+  const btnAdd = document.getElementById("btn-add");
+  const btnDecompose = document.getElementById("btn-decompose");
+  const btnNewProject = document.getElementById("project-create-btn");
+  const filterAll = document.getElementById("filter-all");
+  const filterActive = document.getElementById("filter-active");
+  const filterCompleted = document.getElementById("filter-completed");
+  const historyToggle = document.getElementById("history-toggle");
+  const dashboardToggle = document.getElementById("dashboard-toggle");
+  const todoInput = document.getElementById("todo-input");
+
+  if (btnAdd) btnAdd.addEventListener("click", addTodo);
+  if (btnDecompose) btnDecompose.addEventListener("click", smartDecomposeTask);
+  if (btnNewProject) btnNewProject.addEventListener("click", createProject);
+  if (filterAll) filterAll.addEventListener("click", function() { setFilter("all"); });
+  if (filterActive) filterActive.addEventListener("click", function() { setFilter("active"); });
+  if (filterCompleted) filterCompleted.addEventListener("click", function() { setFilter("completed"); });
+  if (historyToggle) historyToggle.addEventListener("click", toggleHistoryPanel);
+  if (dashboardToggle) dashboardToggle.addEventListener("click", toggleDashboardPanel);
+  if (todoInput) todoInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") addTodo();
+  });
+
   render();
 }
 
