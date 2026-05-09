@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#080e1a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LifeOS">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>LifeOS Mobile</title>
+
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>⬡</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23080e1a'/><text x='50' y='72' font-size='64' text-anchor='middle' fill='%234f9cf9'>⬡</text></svg>">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+
+  <!-- ============== 顶部 Header ============== -->
+  <header class="m-header">
+    <div class="m-header-inner">
+      <div class="m-header-left">
+        <span class="m-logo">⬡</span>
+        <div class="m-header-text">
+          <h1>LifeOS</h1>
+          <span class="m-header-sub" id="m-current-project">工作</span>
+        </div>
+      </div>
+      <button id="m-project-switch" class="m-btn-icon" aria-label="切换项目">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18M3 12h18M3 18h18"/>
+        </svg>
+      </button>
+    </div>
+    <!-- 完成率进度条 -->
+    <div class="m-progress-wrap">
+      <div class="m-progress-info">
+        <span id="m-progress-label">每日完成率</span>
+        <span id="m-progress-value">0%</span>
+      </div>
+      <div class="m-progress-track">
+        <div id="m-progress-fill" class="m-progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============== 主内容区 ============== -->
+  <main class="m-main">
+
+    <!-- 页面：今日 -->
+    <section class="m-page active" id="page-today">
+      <!-- Tab 切换 每日/临时 -->
+      <div class="m-segmented">
+        <button class="m-seg-btn active" data-type="daily">
+          <span class="m-seg-icon">📅</span>
+          <span>每日</span>
+          <span class="m-seg-count" id="m-count-daily">0</span>
+        </button>
+        <button class="m-seg-btn" data-type="temp">
+          <span class="m-seg-icon">🧠</span>
+          <span>临时</span>
+          <span class="m-seg-count" id="m-count-temp">0</span>
+        </button>
+      </div>
+
+      <!-- 过滤器 -->
+      <div class="m-filter">
+        <button class="m-filter-btn active" data-filter="all">全部</button>
+        <button class="m-filter-btn" data-filter="active">未完成</button>
+        <button class="m-filter-btn" data-filter="completed">已完成</button>
+      </div>
+
+      <!-- 任务列表 -->
+      <ul id="m-todo-list" class="m-list"></ul>
+
+      <!-- 空状态 -->
+      <div id="m-empty" class="m-empty hidden">
+        <div class="m-empty-icon">✨</div>
+        <p class="m-empty-title">暂无任务</p>
+        <p class="m-empty-sub">在下方输入栏添加你的第一个任务</p>
+      </div>
+    </section>
+
+    <!-- 页面：项目 -->
+    <section class="m-page" id="page-projects">
+      <div class="m-section-head">
+        <h2>项目管理</h2>
+        <button id="m-btn-new-project" class="m-btn-primary-sm">+ 新建</button>
+      </div>
+      <ul id="m-project-list" class="m-project-cards"></ul>
+    </section>
+
+    <!-- 页面：数据 -->
+    <section class="m-page" id="page-stats">
+      <div class="m-stats-grid">
+        <div class="m-stat-card highlight">
+          <p class="m-stat-label">今日完成率</p>
+          <div class="m-stat-value" id="m-stat-rate">0%</div>
+          <p class="m-stat-sub" id="m-stat-rate-detail">0/0 任务</p>
+          <div class="m-progress-track" style="margin-top:10px">
+            <div id="m-stat-progress-fill" class="m-progress-fill" style="width:0%"></div>
+          </div>
+        </div>
+        <div class="m-stat-card">
+          <p class="m-stat-label">今日总数</p>
+          <div class="m-stat-value" id="m-stat-total">0</div>
+          <p class="m-stat-sub" id="m-stat-total-detail">已完成 0 · 未完成 0</p>
+        </div>
+        <div class="m-stat-card">
+          <p class="m-stat-label">连续完成</p>
+          <div class="m-stat-value"><span id="m-stat-streak">0</span> <span class="m-stat-unit">天</span></div>
+          <p class="m-stat-sub">基于历史自动计算</p>
+        </div>
+        <div class="m-stat-card wide">
+          <p class="m-stat-label">最近 7 天</p>
+          <div class="m-chart-wrap">
+            <div id="m-chart" class="m-chart"></div>
+            <div id="m-chart-labels" class="m-chart-labels"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 页面：历史 -->
+    <section class="m-page" id="page-history">
+      <div class="m-section-head">
+        <h2>历史记录</h2>
+      </div>
+      <div class="m-history-dates" id="m-history-dates"></div>
+      <div id="m-history-detail" class="m-history-detail">
+        <p class="m-history-empty">选择一个日期查看记录</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============== 底部输入栏（仅"今日"页显示） ============== -->
+  <div id="m-input-bar" class="m-input-bar">
+    <input type="text" id="m-todo-input" placeholder="输入新任务..." enterkeyhint="done">
+    <button id="m-btn-decompose" class="m-btn-decompose" aria-label="智能拆解">✨</button>
+    <button id="m-btn-add" class="m-btn-add" aria-label="添加">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M12 5v14M5 12h14"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- ============== 底部 Tab 栏 ============== -->
+  <nav class="m-tabbar">
+    <button class="m-tab active" data-page="today">
+      <svg class="m-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <span>今日</span>
+    </button>
+    <button class="m-tab" data-page="projects">
+      <svg class="m-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span>项目</span>
+    </button>
+    <button class="m-tab" data-page="stats">
+      <svg class="m-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+      <span>数据</span>
+    </button>
+    <button class="m-tab" data-page="history">
+      <svg class="m-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <span>历史</span>
+    </button>
+  </nav>
+
+  <!-- ============== 项目切换抽屉 ============== -->
+  <div id="m-drawer" class="m-drawer hidden">
+    <div class="m-drawer-backdrop"></div>
+    <div class="m-drawer-panel">
+      <div class="m-drawer-handle"></div>
+      <h3 class="m-drawer-title">切换项目</h3>
+      <ul id="m-drawer-list" class="m-drawer-list"></ul>
+    </div>
+  </div>
+
+  <!-- ============== Toast 提示 ============== -->
+  <div id="m-toast" class="m-toast hidden"></div>
+
+  <script src="mobile.js"></script>
+  <script>
+    // 注册 Service Worker（PWA 离线支持）
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js').catch(function(){});
+      });
+    }
+  </script>
+</body>
+</html>
