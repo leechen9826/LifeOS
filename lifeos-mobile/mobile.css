@@ -33,7 +33,8 @@
   --safe-bottom:    env(safe-area-inset-bottom, 0px);
 
   /* 布局参数 */
-  --header-h:       128px;
+  --header-content-h: 110px;  /* header 内部内容的实际高度（不含安全区）*/
+  --header-h:       calc(var(--safe-top) + var(--header-content-h));
   --tabbar-h:       64px;
   --input-bar-h:    64px;
 }
@@ -190,7 +191,7 @@ ul { list-style: none; }
    主内容区
    ============================================ */
 .m-main {
-  padding-top: var(--header-h);
+  padding-top: calc(var(--header-h) + 8px);
   padding-bottom: calc(var(--tabbar-h) + var(--input-bar-h) + var(--safe-bottom) + 16px);
   min-height: 100dvh;
 }
